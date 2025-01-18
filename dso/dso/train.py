@@ -29,7 +29,7 @@ def work(p):
 
 class Trainer():
     def __init__(self, sess, policy, policy_optimizer, gp_controller, logger,
-                 pool, n_samples=2000000, batch_size=1000, alpha=0.5,
+                 pool, length_penalty_weight=0.1, n_samples=2000000, batch_size=1000, alpha=0.5,
                  epsilon=0.05, verbose=True, baseline="R_e",
                  b_jumpstart=False, early_stopping=True, debug=0,
                  use_memory=False, memory_capacity=1e3,  warm_start=None, memory_threshold=None,
@@ -131,6 +131,8 @@ class Trainer():
         # Initialize compute graph
         self.sess.run(tf.global_variables_initializer())
 
+        self.length_penalty_weight = length_penalty_weight ### adiition
+
         self.policy = policy
         self.policy_optimizer = policy_optimizer
         self.gp_controller = gp_controller
@@ -167,6 +169,8 @@ class Trainer():
         else:
             self.priority_queue = None
 
+        
+
         # Create the memory queue
         if self.use_memory:
             assert self.epsilon is not None and self.epsilon < 1.0, \
@@ -176,9 +180,14 @@ class Trainer():
 
             # Warm start the queue
             # TBD: Parallelize. Abstract sampling a Batch
+
             warm_start = warm_start if warm_start is not None else self.batch_size
             actions, obs, priors = policy.sample(warm_start)
             programs = [from_tokens(a) for a in actions]
+            r = np.array([p.r for p in programs])
+            lengths = np.array([len(p.traversal) for p in programs])
+            penalty = self.length_penalty_weight * lengths
+            r -= penalty
             r = np.array([p.r for p in programs])
             l = np.array([len(p.traversal) for p in programs])
             on_policy = np.array([p.originally_on_policy for p in programs])

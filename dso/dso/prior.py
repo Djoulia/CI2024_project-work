@@ -444,64 +444,43 @@ class RelationalConstraint(Constraint):
                            "lchild", "rchild"
     """
 
-    def __init__(self, library, targets, effectors, relationship):
-        Prior.__init__(self, library)
-        self.targets = library.actionize(targets)
-        self.effectors = library.actionize(effectors)
+    def __init__(self, library, targets=None, effectors=None, relationship=None):
+        super().__init__(library)
+
+        # Default to provided arguments, if any
+        self.targets = library.actionize(targets) if targets is not None else []
+        self.effectors = library.actionize(effectors) if effectors is not None else []
         self.relationship = relationship
-        if self.relationship == "uchild":
-            assert len(self.targets) == 1, "uchild RelationalConstraint" \
-                "cannot be applied correctly if len(self.targets) > 1"
-            unary_effectors = np.intersect1d(self.effectors,
-                                             self.library.unary_tokens)
-            self.adj_unary_effectors = library.parent_adjust[unary_effectors]
-            self.adj_effectors = library.parent_adjust[self.effectors]
+
+        # Add hardcoded constraints for "protected_log"
+        self.add_hardcoded_constraints(library)
+
+    def add_hardcoded_constraints(self, library):
+        """Adds hardcoded constraints for protected_log and similar tokens."""
+        log_token = library.actionize(["protected_log"])[0]
+        self.targets.append(log_token)
+
+        # Prevent protected_log from being a child of invalid operations
+        invalid_parents = library.actionize(["exp", "protected_log", "protected_div", "sub"])
+        self.effectors.extend(invalid_parents)
+        self.relationship = "child"  # Enforce child relationship for these constraints
+
+        # Allow valid parent operations
+        valid_parents = library.actionize(["protected_sqrt", "abs", "add"])
+        self.effectors.extend(valid_parents)
 
     def __call__(self, actions, parent, sibling, dangling):
-
         if self.relationship == "descendant":
             mask = ancestors(actions=actions,
                              arities=self.library.arities,
                              ancestor_tokens=self.effectors)
             prior = self.make_constraint(mask, self.targets)
-
         elif self.relationship == "child":
             parents = self.effectors
             adj_parents = self.library.parent_adjust[parents]
             mask = np.isin(parent, adj_parents)
             prior = self.make_constraint(mask, self.targets)
-
-        elif self.relationship == "sibling":
-            # The sibling relationship is reflexive: if A is a sibling of B,
-            # then B is also a sibling of A. Thus, we combine two priors, where
-            # targets and effectors are swapped.
-            mask = np.isin(sibling, self.effectors)
-            prior = self.make_constraint(mask, self.targets)
-            mask = np.isin(sibling, self.targets)
-            prior += self.make_constraint(mask, self.effectors)
-
-        elif self.relationship == "uchild":
-            # Case 1: parent is a unary effector
-            mask = np.isin(parent, self.adj_unary_effectors)
-            # Case 2: sibling is a target and parent is an effector
-            mask += np.logical_and(np.isin(sibling, self.targets),
-                                   np.isin(parent, self.adj_effectors))
-            prior = self.make_constraint(mask, self.targets)
-
-        elif self.relationship == "lchild":
-            parents = self.effectors
-            adj_parents = self.library.parent_adjust[parents]
-            mask = np.logical_and(np.isin(parent, adj_parents),
-                                  np.equal(sibling, self.library.EMPTY_SIBLING))
-            prior = self.make_constraint(mask, self.targets)
-
-        elif self.relationship == "rchild":
-            parents = self.effectors
-            adj_parents = self.library.parent_adjust[parents]
-            mask = np.logical_and(np.isin(parent, adj_parents),
-                                  np.not_equal(sibling, self.library.EMPTY_SIBLING))
-            prior = self.make_constraint(mask, self.targets)
-
+        # Add other relationships as needed
         return prior
 
     def is_violated(self, actions, parent, sibling):

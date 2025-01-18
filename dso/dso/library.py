@@ -386,6 +386,10 @@ class Library():
         self.EMPTY_ACTION = self.n_action_inputs - 1
         self.EMPTY_PARENT = self.n_parent_inputs - 1
         self.EMPTY_SIBLING = self.n_sibling_inputs - 1
+        print("Initialized Library with tokens:")
+        for token in tokens:
+            print(f"Token: {token.name}, Arity: {token.arity}")
+
 
     def __getitem__(self, val):
         """Shortcut to get Token by name or index."""
@@ -423,8 +427,9 @@ class Library():
         Tokens in the Library."""
 
         tokens = self.tokenize(inputs)
-        actions = np.array([self.tokens.index(t) for t in tokens],
-                           dtype=np.int32)
+        for token in tokens:
+            print(f"Actionizing token: {token.name}")
+        actions = np.array([self.tokens.index(t) for t in tokens], dtype=np.int32)
         return actions
 
 

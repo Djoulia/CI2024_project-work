@@ -68,17 +68,25 @@ unprotected_ops = [
 
 """Define custom protected operators"""
 def protected_div(x1, x2):
-    with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
-        return np.where(np.abs(x2) > 0.001, np.divide(x1, x2), 1.)
+    """Division protégée pour éviter les divisions par zéro."""
+    min_value = 1e-6  # Avoid division by very small numbers
+    return np.divide(x1, np.where(np.abs(x2) > min_value, x2, min_value))
 
 def protected_exp(x1):
-    with np.errstate(over='ignore'):
-        return np.where(x1 < 100, np.exp(x1), 0.0)
+    """Protège exp contre les overflows et underflows."""
+    with np.errstate(over='ignore', under='ignore'):
+        # Limiter les valeurs d'entrée pour éviter les underflows (x1 > -100)
+        return np.where(x1 > -100, np.exp(x1), 0.0)  # Retourner 0 si x1 est trop petit
+
 
 def protected_log(x1):
-    """Closure of log for non-positive arguments."""
-    with np.errstate(divide='ignore', invalid='ignore'):
-        return np.where(np.abs(x1) > 0.001, np.log(np.abs(x1)), 0.)
+    """
+    Stricter protected log function with diagnostics and aggressive range filtering.
+    """
+    min_value = 1e-6
+    x1 = np.clip(x1, min_value, None)  # Clip to avoid log of non-positive values
+    return np.log(x1)
+
 
 def protected_sqrt(x1):
     """Closure of sqrt for negative arguments."""
@@ -108,6 +116,7 @@ def protected_n4(x1):
 def protected_sigmoid(x1):
     return 1 / (1 + protected_expneg(x1))
 
+
 # Annotate protected ops
 protected_ops = [
     # Protected binary operators
@@ -116,7 +125,6 @@ protected_ops = [
     # Protected unary operators
     Token(protected_exp, "exp", arity=1, complexity=4),
     Token(protected_log, "log", arity=1, complexity=4),
-    Token(protected_log, "logabs", arity=1, complexity=4), # Protected logabs is support, but redundant
     Token(protected_sqrt, "sqrt", arity=1, complexity=4),
     Token(protected_inv, "inv", arity=1, complexity=2),
     Token(protected_expneg, "expneg", arity=1, complexity=4),
@@ -133,12 +141,14 @@ function_map = {
 
 # Add protected ops to function map
 function_map.update({
-    "protected_{}".format(op.name) : op for op in protected_ops
-    })
+    f"protected_{op.name}": op for op in protected_ops
+})
 
 TERMINAL_TOKENS = set([op.name for op in function_map.values() if op.arity == 0])
 UNARY_TOKENS    = set([op.name for op in function_map.values() if op.arity == 1])
 BINARY_TOKENS   = set([op.name for op in function_map.values() if op.arity == 2])
+print("Registered tokens in function_map:", list(function_map.keys()))
+
 
 
 def create_state_checkers(n_states, threshold_set):
@@ -234,3 +244,8 @@ def create_tokens(n_input_var, function_set, protected, decision_tree_threshold_
         tokens.extend(state_checkers)
         
     return tokens
+
+config_function_set = ["add", "sub", "mul", "protected_log", "protected_div", "sin", "cos"]
+invalid_ops = [op for op in config_function_set if op not in function_map]
+if invalid_ops:
+    raise ValueError(f"The following operations are not registered: {invalid_ops}")

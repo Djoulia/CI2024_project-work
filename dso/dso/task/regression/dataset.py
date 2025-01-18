@@ -44,21 +44,48 @@ class BenchmarkDataset(object):
     """
 
     def __init__(self, name, benchmark_source="benchmarks.csv", root=None, noise=0.0,
-                 seed=0, logdir=None, backup=False):
+             seed=0, logdir=None, backup=False):
         # Set class variables
         self.name = name
         self.seed = seed
         self.noise = noise if noise is not None else 0.0
+        self.X_train, self.y_train = None, None
+        self.X_test, self.y_test = None, None
 
-        # Set random number generator used for sampling X values
-        seed += zlib.adler32(name.encode("utf-8")) # Different seed for each name, otherwise two benchmarks with the same domain will always have the same X values
+        # Check if `name` is a file path
+        if os.path.isfile(name) and name.endswith(".npz"):
+           
+            print(f"Loading dataset from {name}")
+            data = np.load(name)
+            self.X_train = data['x']
+            self.y_train = data['y']
+            self.X_test = data['x_test'] if 'x_test' in data else self.X_train.copy()
+            self.y_test = data['y_test'] if 'y_test' in data else self.y_train.copy()
+
+            print(f"Loading custom dataset from {name}")
+            data = np.load(name)
+            self.X_train = data['x']
+            self.y_train = data['y']
+            self.X_test, self.y_test = self.X_train.copy(), self.y_train.copy()
+            self.y_train_noiseless = self.y_train.copy()  # Ajout
+            self.y_test_noiseless = self.y_test.copy()    # Ajout
+            self.function_set = []  # Placeholder if function_set is not applicable
+            self.n_input_var = self.X_train.shape[1] if len(self.X_train.shape) > 1 else 1
+            return
+
+
+        # Original benchmark logic
+        seed += zlib.adler32(name.encode("utf-8"))  # Ensure unique seed
         self.rng = np.random.RandomState(seed)
 
-        # Load benchmark data
         if root is None:
             root = resource_filename("dso.task", "regression")
         benchmark_path = os.path.join(root, benchmark_source)
         benchmark_df = pd.read_csv(benchmark_path, index_col=0, encoding="ISO-8859-1")
+        
+        if name not in benchmark_df.index:
+            raise KeyError(f"Benchmark '{name}' not found in the benchmark definitions.")
+        
         row = benchmark_df.loc[name]
         self.n_input_var = row["variables"]
 
@@ -86,7 +113,7 @@ class BenchmarkDataset(object):
             self.y_train += self.rng.normal(loc=0, scale=scale, size=self.y_train.shape)
             self.y_test += self.rng.normal(loc=0, scale=scale, size=self.y_test.shape)
         elif self.noise < 0:
-            print('WARNING: Ignoring negative noise value: {}'.format(self.noise))
+            print(f"WARNING: Ignoring negative noise value: {self.noise}")
 
         # Load default function set
         function_set_path = os.path.join(root, "function_sets.csv")
@@ -94,28 +121,8 @@ class BenchmarkDataset(object):
         function_set_name = row["function_set"]
         self.function_set = function_set_df.loc[function_set_name].tolist()[0].strip().split(',')
 
-        # Prepare status output
-        output_message = '\n-- BUILDING DATASET START -----------\n'
-        output_message += 'Generated data for benchmark   : {}\n'.format(name)
-        output_message += 'Benchmark path                 : {}\n'.format(benchmark_path)
-        output_message += 'Function set                   : {} --> {}\n'.format(function_set_name, self.function_set)
-        output_message += 'Function set path              : {}\n'.format(function_set_path)
-        test_spec_txt = row["test_spec"] if row["test_spec"] != "None" else "{} (Copy from train!)".format(row["test_spec"])
-        output_message += 'Dataset specifications         : \n' \
-                          + '        Train --> {}\n'.format(row["train_spec"]) \
-                          + '        Test  --> {}\n'.format(test_spec_txt)
-        random_choice_train = self.rng.randint(self.X_train.shape[0])
-        random_sample_train = "[{}],[{}]".format(self.X_train[random_choice_train], self.y_train[random_choice_train])
-        output_message += 'Built data set                 : \n' \
-                          + '        Train --> X:{}, y:{}, Sample: {}\n'.format(self.X_train.shape, self.y_train.shape, random_sample_train)
-        if row["test_spec"] is not None:
-            random_choice_test = self.rng.randint(self.X_test.shape[0])
-            random_sample_test = "[{}],[{}]".format(self.X_test[random_choice_test], self.y_test[random_choice_test])
-            output_message += '        Test  --> X:{}, y:{}, Sample: {}\n'.format(self.X_test.shape, self.y_test.shape, random_sample_test)
-        if backup and logdir is not None:
-            output_message += self.save(logdir)
-        output_message += '-- BUILDING DATASET END -------------\n'
-        print(output_message)
+        print(f"Loaded benchmark dataset: {name}")
+
 
     def extract_dataset_specs(self, specs):
         specs = ast.literal_eval(specs)
